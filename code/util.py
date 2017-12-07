@@ -1,6 +1,9 @@
 import os, glob, cv2
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
 
 """ 
     Generate Dataset (X,Y) from Folder Path.
@@ -42,7 +45,7 @@ def get_dataset(_loadpath='data/',_rszshape=(28,28),_imgext='png',_VERBOSE=True)
     return X, Y, imgcnt
 
 """
-    Open session
+    Open GPU Session
 """
 def gpusession():
     config = tf.ConfigProto(); 
@@ -50,5 +53,36 @@ def gpusession():
     sess = tf.Session(config=config)
     return sess
 
+"""
+    Plot Grid Images
+"""
+def plot_grid_imgs(_imgs,_nr=1,_nc=10,_imgshp=[28,28],_figsize=(15,2),_title=''):
+    nr,nc = _nr,_nc
+    fig = plt.figure(figsize=_figsize)
+    fig.suptitle(_title, size=15)
+    gs  = gridspec.GridSpec(nr,nc)
+    gs.update(wspace=0.05, hspace=0.05)
+    for i, img in enumerate(_imgs):
+        ax = plt.subplot(gs[i]); plt.axis('off')
+        ax.set_xticklabels([]); ax.set_yticklabels([]); ax.set_aspect('equal')
+        plt.imshow(img.reshape(_imgshp[0],_imgshp[1]),cmap='Greys_r',interpolation='none')
+        plt.clim(0.0, 1.0)
+    plt.show()
+    
 
 
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+       

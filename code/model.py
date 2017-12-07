@@ -5,6 +5,9 @@ import tensorflow.contrib.keras as keras
 import numpy as np
 import matplotlib.pyplot as plt
 
+"""
+    Basic Convolutional Neural Network with tf.slim
+"""
 class basic_cnn(object):
     def __init__(self,_name='CNN',
                  _xtrain=np.zeros((100,1)),_ytrain=np.zeros((100,1)),
@@ -67,7 +70,7 @@ class basic_cnn(object):
                                    normalizer_params=bnparam,
                                    scope='conv2')
             self.net = slim.max_pool2d(self.net, [2, 2], scope='pool2')
-            self.net = slim.conv2d(self.net,128,[3,3],padding='SAME',
+            self.net = slim.conv2d(self.net,256,[3,3],padding='SAME',
                                    activation_fn=tf.nn.relu,
                                    weights_initializer=self.winit,
                                    normalizer_fn=slim.batch_norm,
@@ -90,7 +93,6 @@ class basic_cnn(object):
         self.t_vars = [var for var in t_vars if 'W/' in var.name]
         g_vars = tf.global_variables()
         self.g_vars = [var for var in g_vars if 'W/' in var.name]
-        
     """
         Build Graph
     """
@@ -107,7 +109,6 @@ class basic_cnn(object):
                         staircase=False) 
         # LR = learning_rate*decay_rate^(global_step/decay_steps)
         self.optm = tf.train.AdamOptimizer(self.lr).minimize(self.loss,global_step=self.step)
-    
     """
         Initialize Weight
     """
@@ -177,7 +178,6 @@ class basic_cnn(object):
         train_loss,train_accr,_ = self.check_data(_xdata=self.xtrain,_ydata=self.ytrain)
         print ("[iter:%04d]TrainLoss:[%.2e],TrainAccr:[%.2f%%],TestAccr:[%.2f%%]"%
                (self.step_val,train_loss,train_accr*100.,test_accr*100.))
-    
     """
         Plot Misclassified Images
     """
@@ -195,7 +195,6 @@ class basic_cnn(object):
             axarr[idx].imshow(currimg,cmap=plt.get_cmap('gray'))
             axarr[idx].set_title('[%d]T:%s(P:%s)'%(imgidx,truelabel,predlabel[0]),fontsize=15)
         plt.show()
-    
     """
         Save
     """
@@ -215,7 +214,6 @@ class basic_cnn(object):
         np.savez(_savename,g_wnames=g_wnames,g_wvals=g_wvals)
         print ("[%s] Saved. Size is [%.1f]MB" % 
                (_savename,os.path.getsize(_savename)/1000./1000.))
-        
     """
         Restore
     """
@@ -231,6 +229,188 @@ class basic_cnn(object):
         print ("Weight restored from [%s]" % (_loadname))
 
 
+        
+        
+        
+""" 
+    Basic DCVAE
+"""
+def lrelu(x, leak=0.2, name='lrelu'):
+    with tf.variable_scope(name):
+        f1 = 0.5 * (1. + leak)
+        f2 = 0.5 * (1. - leak)
+    return f1 * x + f2 * tf.abs(x)
+class basic_dcvae(object):
+    def __init__(self,_name='DCVAE',_xdim=np.array([28,28,1]),_zdim=128,
+                 _filtersize=[5,5],_nfilter=32,_actv=lrelu,
+                 _lr=0.001,_beta1=0.9,_beta2=0.999,_epsilon=1e-8):
+        """ Parse inputs """
+        self.name = _name
+        if len(_xdim)==2: _xdim=np.concatenate([_xdim,np.array([1])])
+        self.xdim       = _xdim
+        self.xdim_flat  = np.prod(self.xdim)
+        self.zdim       = _zdim
+        self.filtersize = _filtersize
+        self.nfilter    = _nfilter
+        self.actv       = _actv
+        self.lr         = _lr
+        self.beta1      = _beta1
+        self.beta2      = _beta2
+        self.epsilon    = _epsilon
+        """ Build model """
+        self.build_model()
+        """ Build graph """
+        self.build_graph()
+        print ("[%s] Instantiated" % (self.name))
+        print (" xdim:[%s] zdim:[%d] nfilter:[%d] filtersize:[%s]"%
+               (self.xdim,self.zdim,self.nfilter,self.filtersize))
+        """ Print """
+        print ("Trainable Variables")
+        for i in range(len(self.t_vars)):
+            w_name  = self.t_vars[i].name
+            w_shape = self.t_vars[i].get_shape().as_list()
+            print (" [%d] Name:[%s] Shape:[%s]" % (i,w_name,w_shape))
+        print ("Global Variables")
+        for i in range(len(self.g_vars)):
+            w_name  = self.g_vars[i].name
+            w_shape = self.g_vars[i].get_shape().as_list()
+            print (" [%d] Name:[%s] Shape:[%s]" % (i,w_name,w_shape))
+            
+    """
+        Encoder
+    """
+    def encoder(self,_x,_name='encoder',_reuse=False):
+        with tf.variable_scope(_name, reuse=_reuse) as scope:
+            with slim.arg_scope([slim.conv2d], stride=2, activation_fn=self.actv,
+                                weights_initializer=self.conv_init,biases_initializer=self.bias_init,
+                                normalizer_fn=slim.batch_norm,normalizer_params=self.bn_params):
+                _net = slim.conv2d(_x,self.nfilter*1,self.filtersize,
+                                       normalizer_fn=None,normalizer_params=None,scope='conv0')
+                _net = slim.conv2d(_net,self.nfilter*2,self.filtersize,scope='conv1') 
+                _net = slim.conv2d(_net,self.nfilter*4,self.filtersize,scope='conv2')
+                _net = slim.conv2d(_net,self.nfilter*8,self.filtersize,scope='conv3')
+                _zmu = slim.fully_connected(slim.flatten(_net),self.zdim,
+                                            weights_initializer=self.fully_init,
+                                            biases_initializer=self.bias_init,
+                                            activation_fn=None,
+                                            scope='zmu')
+                _zlogvar = slim.fully_connected(slim.flatten(_net),self.zdim,
+                                                weights_initializer=self.fully_init,
+                                                biases_initializer=self.bias_init,
+                                                activation_fn=None,
+                                                scope='zlogvar')
+        return _zmu, _zlogvar
+    """
+        Decoder
+    """
+    def decoder(self,_z,_name='decoder',_reuse=False):
+        s16_0,s16_1 = int(self.xdim[0]/16),int(self.xdim[1]/16)
+        with tf.variable_scope(_name, reuse=_reuse) as scope:
+            with slim.arg_scope([slim.conv2d_transpose],stride=2,activation_fn=self.actv,
+                                weights_initializer=self.conv_init, biases_initializer=self.bias_init,
+                                normalizer_fn=slim.batch_norm, normalizer_params=self.bn_params):
+                _net = slim.fully_connected(_z,self.nfilter*8*s16_0*s16_1, activation_fn=None,
+                                       weights_initializer=self.fully_init,
+                                       biases_initializer=self.bias_init,
+                                       scope='lin0')
+                _net = tf.reshape(_net, [-1,s16_0,s16_1,self.nfilter*8]) 
+                _net = slim.batch_norm(_net, activation_fn=tf.nn.relu, scope='lin0_bn', **self.bn_params)
+                _net = slim.conv2d_transpose(_net,self.nfilter*4,self.filtersize,scope='up1')
+                _net = slim.conv2d_transpose(_net,self.nfilter*2,self.filtersize,scope='up2')
+                _net = slim.conv2d_transpose(_net,self.nfilter*1,self.filtersize,scope='up3')
+                _net = slim.conv2d_transpose(_net,self.xdim[2],self.filtersize,
+                                             activation_fn=None,
+                                             scope='up4')
+        return _net
+    """
+        Build Model
+    """
+    def build_model(self):
+        self.x = tf.placeholder(tf.float32,shape=[None,self.xdim_flat])
+        self.z = tf.placeholder(tf.float32,shape=[None,self.zdim])
+        self.is_training = tf.placeholder(dtype=tf.bool,shape=[])
+        self.kl_weight   = tf.placeholder(dtype=tf.float32,shape=[])
+        self.conv_init   = tf.truncated_normal_initializer(stddev=0.02)
+        self.fully_init  = tf.random_normal_initializer(stddev=0.02)
+        self.bias_init   = tf.constant_initializer(0.)
+        self.bn_init     = {'beta': tf.constant_initializer(0.),
+                           'gamma': tf.random_normal_initializer(1., 0.02)}
+        self.bn_params   = {'is_training':self.is_training,'decay':0.9,'epsilon':1e-5,
+                           'param_initializers':self.bn_init,'updates_collections': None}
+        """
+            Reshape to image shape
+        """
+        self.x_reshape = tf.reshape(self.x,shape=[-1,self.xdim[0],self.xdim[1],self.xdim[2]])
+        """
+            Encoder
+        """
+        self.zmu,self.zlogvar = self.encoder(self.x_reshape,_name='encoder',_reuse=False)
+        """
+            Sample z
+        """
+        self.eps     = tf.random_normal(shape=tf.shape(self.zmu),mean=0,stddev=1,dtype=tf.float32)
+        self.zsample = self.zmu + tf.sqrt(tf.exp(self.zlogvar/2.))*self.eps
+        """
+            Decoder with sampled z (for training)
+        """
+        self.xrecon_train = self.decoder(self.zsample,_name='decoder',_reuse=False)
+        """
+            Decoder with given z (for testing)
+        """
+        self.xrecon_test = self.decoder(self.z,_name='decoder',_reuse=True)
+        """ Get Variables """
+        _t_vars = tf.trainable_variables()
+        self.t_vars = [var for var in _t_vars if ('encoder/' in var.name) or ('decoder/' in var.name)]
+        _g_vars = tf.global_variables()
+        self.g_vars = [var for var in _g_vars if ('encoder/' in var.name) or ('decoder/' in var.name)]
+    """
+        Build Graph
+    """
+    def build_graph(self):
+        self.l1_loss     = 1./2.*tf.norm(self.xrecon_train-self.x_reshape,ord=1,axis=1)
+        self.l2_loss     = 1./2.*tf.norm(self.xrecon_train-self.x_reshape,ord=2,axis=1)
+        self.recon_loss  = tf.reduce_mean(self.l1_loss)
+        self.kl_loss_raw = 0.5*tf.reduce_sum(tf.exp(self.zlogvar)+self.zmu**2-1.-self.zlogvar,1)
+        self.kl_loss     = tf.reduce_mean(self.kl_loss_raw)
+        self.total_loss  = self.recon_loss + self.kl_weight*self.kl_loss
+        self.solver = tf.train.AdamOptimizer(
+            learning_rate=self.lr,beta1=self.beta1,beta2=self.beta2,epsilon=self.epsilon)\
+            .minimize(self.total_loss)
+    """
+        Save
+    """
+    def save(self,_sess,_savename=None):
+        """ Save name """
+        if _savename==None:
+            _savename='net/net_dcvae.npz'
+        """ Get global variables """
+        g_wnames,g_wvals = [],[]
+        for i in range(len(self.g_vars)):
+            curr_wname = self.g_vars[i].name
+            curr_wvar  = [v for v in tf.global_variables() if v.name==curr_wname][0]
+            curr_wval  = _sess.run(curr_wvar)
+            g_wnames.append(curr_wname)
+            g_wvals.append(curr_wval)
+        """ Save """
+        np.savez(_savename,g_wnames=g_wnames,g_wvals=g_wvals)
+        print ("[%s] Saved. Size is [%.1f]MB" % 
+               (_savename,os.path.getsize(_savename)/1000./1000.))
+    """
+        Restore
+    """
+    def restore(self,_sess,_loadname=None):
+        if _loadname==None:
+            _loadname='net/net_dcvae.npz'
+        l = np.load(_loadname)
+        g_wnames = l['g_wnames']
+        g_wvals  = l['g_wvals']
+        for widx,wname in enumerate(g_wnames):
+            curr_wvar  = [v for v in tf.global_variables() if v.name==wname][0]
+            _sess.run(tf.assign(curr_wvar,g_wvals[widx]))
+        print ("Weight restored from [%s]" % (_loadname))
+
+    
+        
 
 
 
@@ -277,4 +457,4 @@ class basic_cnn(object):
 
 
 
-#
+# EOF
