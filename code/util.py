@@ -63,12 +63,44 @@ def plot_grid_imgs(_imgs,_nr=1,_nc=10,_imgshp=[28,28],_figsize=(15,2),_title='')
     gs  = gridspec.GridSpec(nr,nc)
     gs.update(wspace=0.05, hspace=0.05)
     for i, img in enumerate(_imgs):
+        if np.issubdtype(img.reshape(-1)[0], int):
+            img = np.clip(img,0,255)
+        else:
+            img = np.clip(img,0.0,1.0)
+        
         ax = plt.subplot(gs[i]); plt.axis('off')
         ax.set_xticklabels([]); ax.set_yticklabels([]); ax.set_aspect('equal')
         plt.imshow(img.reshape(_imgshp[0],_imgshp[1]),cmap='Greys_r',interpolation='none')
         plt.clim(0.0, 1.0)
     plt.show()
+"""
+    Normalizer 
+"""
+class normalizer(object):
+    def __init__(self,_name=''):
+        self.name = _name
+        print ("[%s] Instantiated" % (self.name))
     
+"""
+    Generate complex data for tesing mixture density network 
+"""
+def get_data4mdn(_xmin=-5.,_xmax=5.,_bias=0,_nsample=1e3):
+    XMIN,XMAX = _xmin,_xmax
+    NSAMPLE   = _nsample
+    _x1 = np.float32(np.random.uniform(XMIN,XMAX,((int)(NSAMPLE/2),1)))
+    _r1 = np.array([np.random.normal(scale=np.abs(i)) for i in _x1])
+    _y1 = np.float32((_x1**2)+_r1*1.0) 
+    _z1 = np.float32((_x1**2)-_bias+_r1*1.0) 
+    _x2 = np.float32(np.random.uniform(XMIN,XMAX,((int)(NSAMPLE/2),1)))
+    _r2 = np.array([np.random.normal(scale=np.abs(i)) for i in _x2])
+    _y2 = np.float32(-(_x2**2)+_r2*1.0)
+    _z2 = np.float32(-(_x2**2)+_bias+_r2*1.0)
+    _xdata = np.concatenate((_x1,_x2),axis=0)
+    _ydata = np.concatenate((_y1,_y2),axis=0)
+    _zdata = np.concatenate((_z1,_z2),axis=0)
+    return _xdata,_ydata,_zdata
+    
+
 
 
         
